@@ -21,17 +21,23 @@ public class PXHTTPManager: PXHttpManagerProtocol {
     private let urlSession: URLSession
     
     private init() {
-        // Refactor eventually
         #if DEBUG
+        if PXHttpConfigurator.shouldPrintRequestsWhileDebugging {
             let config = Reqres.defaultSessionConfiguration()
             config.timeoutIntervalForRequest = 120
             config.requestCachePolicy = .reloadIgnoringLocalCacheData
             urlSession = URLSession(configuration: config)
-        #else
+        } else {
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = 120
             config.requestCachePolicy = .reloadIgnoringLocalCacheData
             urlSession = URLSession(configuration: config)
+        }
+        #else
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        urlSession = URLSession(configuration: config)
         #endif
     }
     
@@ -116,7 +122,7 @@ extension Dictionary where Key == String {
     
     func urlWithQueryString(url: URL) -> URL? {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-
+        
         var queryItems = [URLQueryItem]()
         
         self.forEach { key, value in
