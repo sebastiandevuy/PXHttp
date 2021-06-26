@@ -15,5 +15,6 @@ public enum PXHttpError: Error, Equatable {
     case serialization
     case unAuthenticated
     case noToken
+    case noConfiguration
     case unknown
 }

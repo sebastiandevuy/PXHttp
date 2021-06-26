@@ -23,8 +23,17 @@ public class PXHttpConfigurator {
 
 public struct PXConfiguration {
     let shouldPrintRequestsWhileDebugging: Bool
+    let authHandler: PXAuthProtocol?
     
-    public init(shouldPrintRequestsWhileDebugging: Bool) {
+    public init(shouldPrintRequestsWhileDebugging: Bool,
+                authHandler: PXAuthProtocol? = nil) {
         self.shouldPrintRequestsWhileDebugging = shouldPrintRequestsWhileDebugging
+        self.authHandler = authHandler
     }
+}
+
+public protocol PXAuthProtocol {
+    func addAuthHeader(url: URLRequest) -> URLRequest
+    func handleAuthFailure(url: URLRequest,
+                           completion: @escaping (Result<URLRequest, Error>) -> Void)
 }

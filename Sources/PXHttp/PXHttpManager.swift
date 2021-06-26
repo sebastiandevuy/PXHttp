@@ -19,6 +19,8 @@ public class PXHTTPManager: PXHttpManagerProtocol {
     public static var shared = PXHTTPManager()
     
     private let urlSession: URLSession
+    private var refreshTokenSubscriber: AnyCancellable?
+    private let refreshLock = NSLock()
     
     private init() {
         #if DEBUG
@@ -42,6 +44,9 @@ public class PXHTTPManager: PXHttpManagerProtocol {
     }
     
     public func makeRequest(_ request: PXHttpRequest) -> AnyPublisher<Data, PXHttpError>  {
+        guard let configuration = PXHttpConfigurator.configuration else {
+            return Fail(error: PXHttpError.noConfiguration).eraseToAnyPublisher()
+        }
         guard let requestUrl = URL(string: request.urlString) else {
             return Fail(error: PXHttpError.badURL).eraseToAnyPublisher()
         }
@@ -75,6 +80,52 @@ public class PXHTTPManager: PXHttpManagerProtocol {
             })
         }
         
+        // Evaluate authentication prior to making the request
+        if let authHandler = configuration.authHandler {
+            urlRequest = authHandler.addAuthHeader(url: urlRequest)
+        }
+        
+        return makeRequest(urlRequest)
+            .tryCatch({ [weak self] error -> AnyPublisher<Data, PXHttpError> in
+                guard let self = self else { throw PXHttpError.unknown }
+                if error == .unAuthenticated,
+                   let authHandler = configuration.authHandler {
+                    self.refreshLock.lock()
+                    let result = self.handleAuthFailure(urlRequest: urlRequest, auth: authHandler)
+                    self.refreshLock.unlock()
+                    switch result {
+                    case .success(let request):
+                        return self.makeRequest(request)
+                    case .failure(let error):
+                        throw error
+                    }
+                } else {
+                    throw error
+                }
+            })
+            .mapError { error -> PXHttpError in
+                if let raisedError = error as? PXHttpError {
+                    return raisedError
+                } else {
+                    return .dataTaskError(description: error.localizedDescription)
+                }
+            }.eraseToAnyPublisher()
+    }
+    
+    func handleAuthFailure(urlRequest: URLRequest, auth: PXAuthProtocol) -> Result<URLRequest, Error> {
+        var obtainedResult: Result<URLRequest, Error> = .failure(NSError())
+        
+        let d = DispatchGroup()
+        d.enter()
+        auth.handleAuthFailure(url: urlRequest) { result in
+            obtainedResult = result
+            d.leave()
+        }
+        d.wait()
+        return obtainedResult
+    }
+    
+    private func makeRequest(_ urlRequest: URLRequest) -> AnyPublisher<Data, PXHttpError> {
         return urlSession
             .dataTaskPublisher(for: urlRequest)
             .tryMap { (data, response) -> Data in
@@ -103,43 +154,5 @@ extension PXHTTPManager {
     private enum DefaultHeaders: String {
         case contentType = "Content-Type"
         case authorization = "Authorization"
-    }
-}
-
-extension Encodable {
-    var dictionary: [String: Any]? {
-        guard let data = try? JSONEncoder().encode(self) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: data, options: .allowFragments)).flatMap { $0 as? [String: Any] }
-    }
-    
-    var jsonData: Data? {
-        guard let dictionary = dictionary else { return nil }
-        return try? JSONSerialization.data(withJSONObject: dictionary, options: .prettyPrinted)
-    }
-}
-
-extension Dictionary where Key == String {
-    
-    func urlWithQueryString(url: URL) -> URL? {
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        
-        var queryItems = [URLQueryItem]()
-        
-        self.forEach { key, value in
-            let dicKey = key
-            if let intValue = value as? Int {
-                queryItems.append(URLQueryItem(name: dicKey, value: String(intValue)))
-            } else if let stringValue = value as? String {
-                queryItems.append(URLQueryItem(name: dicKey, value: stringValue))
-            } else if let boolValue = value as? Bool {
-                queryItems.append(URLQueryItem(name: dicKey, value: boolValue ? "true" : "false"))
-            } else if let doubleValue = value as? Double {
-                queryItems.append(URLQueryItem(name: dicKey, value: String(doubleValue)))
-            }
-        }
-        
-        components?.queryItems = queryItems
-        
-        return components?.url
     }
 }
