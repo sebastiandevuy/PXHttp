@@ -112,7 +112,8 @@ public class PXHTTPManager: PXHttpManagerProtocol {
             }.eraseToAnyPublisher()
     }
     
-    func handleAuthFailure(urlRequest: URLRequest, auth: PXAuthProtocol) -> Result<URLRequest, Error> {
+    func handleAuthFailure(urlRequest: URLRequest,
+                           auth: PXAuthDelegate) -> Result<URLRequest, Error> {
         var obtainedResult: Result<URLRequest, Error> = .failure(NSError())
         
         let d = DispatchGroup()
